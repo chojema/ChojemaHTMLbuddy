@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChojemaHTMLbuddy — HTML WYSIWYG 편집기</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #d9dce1;
+    --text: #1f2328;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Toolbar */
+  #toolbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  #toolbar .group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+  }
+  #toolbar .group:last-child { border-right: none; }
+  button, select, input[type="text"] {
+    font-family: inherit;
+    font-size: 13px;
+  }
+  #toolbar button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    min-width: 32px;
+    line-height: 1.2;
+  }
+  #toolbar button:hover { background: #eef1f5; }
+  #toolbar button:active { background: #e2e6ec; }
+  #toolbar kbd {
+    border: 1px solid #999;
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 5px;
+    background: #f7f7f7;
+    color: #333;
+    font-family: "SF Mono", Consolas, "Courier New", monospace;
+    font-size: 11px;
+  }
+  #toolbar button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  #toolbar button.primary:hover { background: var(--accent-hover); }
+  #toolbar button.toggled {
+    background: #dbeafe;
+    border-color: var(--accent);
+  }
+  #toolbar select {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 6px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  #fileNameInput {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    width: 200px;
+    color: var(--text);
+    background: var(--panel);
+  }
+  #toolbar input[type="color"] {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--panel);
+  }
+  #toolbar button:disabled,
+  #formatBar select:disabled,
+  #formatBar input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .spacer { flex: 1; }
+
+  /* Main editing area: WYSIWYG (left 2/3) + live source (right 1/3) */
+  #main {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+  }
+  #editorFrame {
+    flex: 0 0 66.6667%;
+    max-width: 66.6667%;
+    height: 100%;
+    border: none;
+    display: none;
+    background: #fff;
+  }
+  #sourceArea {
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
+    height: 100%;
+    border: none;
+    resize: none;
+    display: none;
+    padding: 16px;
+    font-family: "SF Mono", Consolas, "Courier New", monospace;
+    font-size: 16px;
+    line-height: 1.5;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    outline: none;
+  }
+  #resizer {
+    flex: 0 0 6px;
+    width: 6px;
+    display: none;
+    cursor: col-resize;
+    background: #000;
+  }
+  #resizer:hover,
+  #resizer.dragging {
+    background: var(--accent);
+  }
+  #resizeOverlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    cursor: col-resize;
+  }
+  #resizeOverlay.active { display: block; }
+  #main.loaded #editorFrame,
+  #main.loaded #sourceArea,
+  #main.loaded #resizer {
+    display: block;
+  }
+  #main.loaded.source-hidden #sourceArea,
+  #main.loaded.source-hidden #resizer {
+    display: none;
+  }
+  #main.loaded.source-hidden #editorFrame {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  /* Drop zone */
+  #dropzone {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--bg);
+  }
+  #dropzone .icon { font-size: 48px; opacity: 0.5; }
+  #dropzone h2 { margin: 0; font-size: 18px; color: var(--text); }
+  #dropzone p { margin: 0; font-size: 14px; }
+  #dropzone p.hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  #dropzone.dragover {
+    background: #eaf2ff;
+    outline: 3px dashed var(--accent);
+    outline-offset: -12px;
+  }
+  #dropzone button {
+    margin-top: 8px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #dropzone button:hover { background: var(--accent-hover); }
+
+  #status {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  /* Bottom status bar */
+  #appStatusBar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #appStatusBar .app-name { font-weight: 600; color: var(--text); }
+  #appStatusBar a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  #appStatusBar a:hover { color: var(--accent); text-decoration: underline; }
+  #appStatusBar .status-spacer { flex: 1; }
+  #appStatusBar .lang-btn {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #appStatusBar .lang-btn:hover { background: #eef1f5; }
+  #appStatusBar .lang-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="group">
+    <button id="btnNew" data-i18n="btnNew" data-i18n-title="btnNew">새 문서</button>
+    <button id="btnOpen" data-i18n="btnOpen" data-i18n-title="btnOpen">파일 열기</button>
+    <input type="file" id="fileInput" accept=".html,.htm,text/html" hidden>
+  </div>
+
+  <div class="group" id="formatBar">
+    <button data-cmd="undo" data-i18n-title="cmdUndo">↶</button>
+    <button data-cmd="redo" data-i18n-title="cmdRedo">↷</button>
+  </div>
+
+  <div class="group" id="formatBar2">
+    <button data-cmd="bold" data-i18n-title="cmdBold"><b>B</b></button>
+    <button data-cmd="italic" data-i18n-title="cmdItalic"><i>I</i></button>
+    <button data-cmd="underline" data-i18n-title="cmdUnderline"><u>U</u></button>
+    <button data-cmd="strikeThrough" data-i18n-title="cmdStrike"><s>S</s></button>
+    <button id="btnKbd" data-i18n-title="btnKbdTitle"><kbd>Kbd</kbd></button>
+    <button data-cmd="removeFormat" data-i18n="cmdRemoveFormatText" data-i18n-title="cmdRemoveFormatTitle">✕서식</button>
+  </div>
+
+  <div class="group" id="formatBar3">
+    <select id="blockSelect" data-i18n-title="blockSelectTitle">
+      <option value="p" data-i18n="blockP">본문</option>
+      <option value="h1" data-i18n="blockH1">제목 1</option>
+      <option value="h2" data-i18n="blockH2">제목 2</option>
+      <option value="h3" data-i18n="blockH3">제목 3</option>
+      <option value="blockquote" data-i18n="blockQuote">인용구</option>
+      <option value="pre" data-i18n="blockPre">코드블록</option>
+    </select>
+    <button data-cmd="insertUnorderedList" data-i18n="cmdUlText" data-i18n-title="cmdUlTitle">• 목록</button>
+    <select id="ulStyleSelect" data-i18n-title="ulStyleSelectTitle">
+      <option value="disc" data-i18n="bulletDisc">● 원형</option>
+      <option value="circle" data-i18n="bulletCircle">○ 속빈 원</option>
+      <option value="square" data-i18n="bulletSquare">■ 사각형</option>
+      <option value="none" data-i18n="bulletNone">기호 없음</option>
+    </select>
+    <button data-cmd="insertOrderedList" data-i18n="cmdOlText" data-i18n-title="cmdOlTitle">1. 목록</button>
+    <select id="olStyleSelect" data-i18n-title="olStyleSelectTitle">
+      <option value="decimal">1, 2, 3</option>
+      <option value="upper-roman">I, II, III</option>
+      <option value="lower-roman">i, ii, iii</option>
+      <option value="upper-alpha">A, B, C</option>
+      <option value="lower-alpha">a, b, c</option>
+    </select>
+  </div>
+
+  <div class="group" id="formatBar4">
+    <button data-cmd="justifyLeft" data-i18n-title="cmdJustifyLeft">⬅</button>
+    <button data-cmd="justifyCenter" data-i18n-title="cmdJustifyCenter">↔</button>
+    <button data-cmd="justifyRight" data-i18n-title="cmdJustifyRight">➡</button>
+    <button data-cmd="justifyFull" data-i18n-title="cmdJustifyFull">☰</button>
+    <button id="btnKeepAll" data-i18n="keepAllText" data-i18n-title="keepAllTitle">단어 보호</button>
+  </div>
+
+  <div class="group" id="tableBar">
+    <button id="btnTableInsert" data-i18n="tableInsertText" data-i18n-title="tableInsertTitle">📋표삽입</button>
+    <button id="btnRowInsert" data-i18n="rowInsertText" data-i18n-title="rowInsertTitle">➕행</button>
+    <button id="btnRowDelete" data-i18n="rowDeleteText" data-i18n-title="rowDeleteTitle">➖행</button>
+    <button id="btnColInsert" data-i18n="colInsertText" data-i18n-title="colInsertTitle">➕열</button>
+    <button id="btnColDelete" data-i18n="colDeleteText" data-i18n-title="colDeleteTitle">➖열</button>
+    <button id="btnCellMergeRight" data-i18n="mergeRightText" data-i18n-title="mergeRightTitle">병합→</button>
+    <button id="btnCellMergeDown" data-i18n="mergeDownText" data-i18n-title="mergeDownTitle">병합↓</button>
+    <button id="btnCellSplit" data-i18n="splitText" data-i18n-title="splitTitle">분할</button>
+    <select id="tableBorderSelect" data-i18n-title="borderSelectTitle">
+      <option value="0" data-i18n="borderNone">테두리 없음</option>
+      <option value="1" selected data-i18n="borderThin">테두리 얇게</option>
+      <option value="2" data-i18n="borderNormal">테두리 보통</option>
+      <option value="4" data-i18n="borderThick">테두리 굵게</option>
+    </select>
+    <select id="tableSpacingSelect" data-i18n-title="spacingSelectTitle">
+      <option value="4" data-i18n="spacingTight">간격 좁게</option>
+      <option value="8" selected data-i18n="spacingNormal">간격 보통</option>
+      <option value="16" data-i18n="spacingWide">간격 넓게</option>
+    </select>
+  </div>
+
+  <div class="group" id="formatBar5">
+    <button id="btnLink" data-i18n="linkInsertText" data-i18n-title="linkInsertTitle">🔗링크</button>
+    <button data-cmd="unlink" data-i18n-title="unlinkTitle">🔗✕</button>
+    <button id="btnImage" data-i18n="imageInsertText" data-i18n-title="imageInsertTitle">🖼️이미지</button>
+    <input type="color" id="foreColor" data-i18n-title="foreColorTitle" value="#000000">
+    <input type="color" id="backColor" data-i18n-title="backColorTitle" value="#ffffff">
+  </div>
+
+  <div class="group" id="formatBar6">
+    <select id="symbolSelect" data-i18n-title="symbolSelectTitle">
+      <option value="" selected disabled data-i18n="symbolPlaceholder">기호</option>
+      <option value="·">·</option>
+      <option value="□">□</option>
+      <option value="■">■</option>
+      <option value="○">○</option>
+      <option value="●">●</option>
+      <option value="※">※</option>
+      <option value="☆">☆</option>
+      <option value="★">★</option>
+      <option value="←">←</option>
+      <option value="→">→</option>
+      <option value="↔">↔</option>
+      <option value="⇨">⇨</option>
+      <option value="➡">➡</option>
+    </select>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="group">
+    <input type="text" id="fileNameInput" value="untitled.html" data-i18n-title="fileNameTitle">
+    <button id="btnToggleSource" data-i18n-title="toggleSourceTitle">소스 패널 숨기기</button>
+    <button id="btnSave" class="primary" data-i18n="saveText" data-i18n-title="saveTitle">💾 저장</button>
+  </div>
+
+  <span id="status"></span>
+</div>
+
+<div id="main">
+  <div id="dropzone">
+    <div class="icon">📄</div>
+    <h2 data-i18n="dropzoneTitle">HTML 파일을 여기로 드래그하세요</h2>
+    <p data-i18n="dropzoneSubtitle">또는 아래 버튼으로 파일을 선택하세요</p>
+    <button id="btnDropOpen" data-i18n="dropzoneButton">파일 선택</button>
+    <p class="hint" data-i18n-html="dropzoneHint">복잡한 새 문서를 처음부터 작성하기보다,<br>이미 만들어진 HTML 파일을 불러와 수정하는 용도로 사용하는 것을 권장합니다.</p>
+  </div>
+  <iframe id="editorFrame" sandbox="allow-same-origin" data-i18n-title="editorFrameTitle" title="편집 영역"></iframe>
+  <div id="resizer" data-i18n-title="resizerTitle" title="드래그하여 편집창 폭 조절"></div>
+  <textarea id="sourceArea" spellcheck="false"></textarea>
+  <div id="resizeOverlay"></div>
+</div>
+
+<footer id="appStatusBar">
+  <span class="app-name">Chojema HTML Buddy</span>
+  <span>·</span>
+  <a href="https://cantips.com" target="_blank" rel="noopener noreferrer">Chulwoo Park</a>
+  <span>© <span id="appYear"></span></span>
+  <span class="status-spacer"></span>
+  <button id="langKoBtn" class="lang-btn" title="한국어">KO</button>
+  <button id="langEnBtn" class="lang-btn" title="English">EN</button>
+</footer>
+
+<script>
+(function () {
+  const frame = document.getElementById('editorFrame');
+  const sourceArea = document.getElementById('sourceArea');
+  const dropzone = document.getElementById('dropzone');
+  const mainEl = document.getElementById('main');
+  const resizer = document.getElementById('resizer');
+  const resizeOverlay = document.getElementById('resizeOverlay');
+  const fileInput = document.getElementById('fileInput');
+  const fileNameInput = document.getElementById('fileNameInput');
+  const statusEl = document.getElementById('status');
+  const btnToggleSource = document.getElementById('btnToggleSource');
+  const btnKeepAll = document.getElementById('btnKeepAll');
+  const formatButtons = document.querySelectorAll('#formatBar button, #formatBar2 button, #formatBar3 button, #formatBar3 select, #formatBar4 button, #tableBar button, #tableBar select, #formatBar5 button, #formatBar5 input, #formatBar6 select');
+  const langKoBtn = document.getElementById('langKoBtn');
+  const langEnBtn = document.getElementById('langEnBtn');
+
+  // --- i18n ---
+  const LANG_KEY = 'chojemaHtmlBuddyLang';
+  let currentLang = localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'ko';
+
+  const I18N = {
+    pageTitle: { ko: 'ChojemaHTMLbuddy — HTML WYSIWYG 편집기', en: 'ChojemaHTMLbuddy — HTML WYSIWYG Editor' },
+    btnNew: { ko: '새 문서', en: 'New' },
+    btnOpen: { ko: '파일 열기', en: 'Open File' },
+    cmdUndo: { ko: '실행 취소', en: 'Undo' },
+    cmdRedo: { ko: '다시 실행', en: 'Redo' },
+    cmdBold: { ko: '굵게', en: 'Bold' },
+    cmdItalic: { ko: '기울임', en: 'Italic' },
+    cmdUnderline: { ko: '밑줄', en: 'Underline' },
+    cmdStrike: { ko: '취소선', en: 'Strikethrough' },
+    btnKbdTitle: { ko: '키보드 키 모양 서식 (다시 누르면 해제)', en: 'Keyboard key style (click again to remove)' },
+    cmdRemoveFormatText: { ko: '✕서식', en: '✕Format' },
+    cmdRemoveFormatTitle: { ko: '서식 지우기', en: 'Clear Formatting' },
+    blockSelectTitle: { ko: '문단 형식', en: 'Paragraph Style' },
+    blockP: { ko: '본문', en: 'Body' },
+    blockH1: { ko: '제목 1', en: 'Heading 1' },
+    blockH2: { ko: '제목 2', en: 'Heading 2' },
+    blockH3: { ko: '제목 3', en: 'Heading 3' },
+    blockQuote: { ko: '인용구', en: 'Quote' },
+    blockPre: { ko: '코드블록', en: 'Code Block' },
+    cmdUlText: { ko: '• 목록', en: '• List' },
+    cmdUlTitle: { ko: '글머리 기호 목록', en: 'Bullet List' },
+    ulStyleSelectTitle: { ko: '글머리 기호 스타일', en: 'Bullet Style' },
+    bulletDisc: { ko: '● 원형', en: '● Filled Circle' },
+    bulletCircle: { ko: '○ 속빈 원', en: '○ Hollow Circle' },
+    bulletSquare: { ko: '■ 사각형', en: '■ Square' },
+    bulletNone: { ko: '기호 없음', en: 'No Bullet' },
+    cmdOlText: { ko: '1. 목록', en: '1. List' },
+    cmdOlTitle: { ko: '번호 매기기 목록', en: 'Numbered List' },
+    olStyleSelectTitle: { ko: '번호 매기기 스타일', en: 'Numbering Style' },
+    cmdJustifyLeft: { ko: '왼쪽 정렬', en: 'Align Left' },
+    cmdJustifyCenter: { ko: '가운데 정렬', en: 'Align Center' },
+    cmdJustifyRight: { ko: '오른쪽 정렬', en: 'Align Right' },
+    cmdJustifyFull: { ko: '양쪽 정렬', en: 'Justify' },
+    keepAllText: { ko: '단어 보호', en: 'Word Wrap' },
+    keepAllTitle: { ko: '한국어 단어가 줄바꿈 시 중간에서 잘리지 않도록 보호 (다시 누르면 해제)', en: 'Prevent Korean words from breaking mid-word at line wraps (click again to remove)' },
+    tableInsertText: { ko: '📋표삽입', en: '📋Insert Table' },
+    tableInsertTitle: { ko: '표 삽입', en: 'Insert Table' },
+    rowInsertText: { ko: '➕행', en: '➕Row' },
+    rowInsertTitle: { ko: '행 삽입 (현재 행 아래)', en: 'Insert row (below current row)' },
+    rowDeleteText: { ko: '➖행', en: '➖Row' },
+    rowDeleteTitle: { ko: '행 삭제 (현재 행)', en: 'Delete row (current row)' },
+    colInsertText: { ko: '➕열', en: '➕Col' },
+    colInsertTitle: { ko: '열 삽입 (현재 열 오른쪽)', en: 'Insert column (right of current column)' },
+    colDeleteText: { ko: '➖열', en: '➖Col' },
+    colDeleteTitle: { ko: '열 삭제 (현재 열)', en: 'Delete column (current column)' },
+    mergeRightText: { ko: '병합→', en: 'Merge→' },
+    mergeRightTitle: { ko: '오른쪽 셀과 병합', en: 'Merge with right cell' },
+    mergeDownText: { ko: '병합↓', en: 'Merge↓' },
+    mergeDownTitle: { ko: '아래 셀과 병합', en: 'Merge with cell below' },
+    splitText: { ko: '분할', en: 'Split' },
+    splitTitle: { ko: '병합된 셀 분할', en: 'Split merged cell' },
+    borderSelectTitle: { ko: '표 테두리 굵기', en: 'Table Border Width' },
+    borderNone: { ko: '테두리 없음', en: 'No Border' },
+    borderThin: { ko: '테두리 얇게', en: 'Thin Border' },
+    borderNormal: { ko: '테두리 보통', en: 'Normal Border' },
+    borderThick: { ko: '테두리 굵게', en: 'Thick Border' },
+    spacingSelectTitle: { ko: '셀 간격(패딩)', en: 'Cell Spacing (Padding)' },
+    spacingTight: { ko: '간격 좁게', en: 'Tight Spacing' },
+    spacingNormal: { ko: '간격 보통', en: 'Normal Spacing' },
+    spacingWide: { ko: '간격 넓게', en: 'Wide Spacing' },
+    linkInsertText: { ko: '🔗링크', en: '🔗Link' },
+    linkInsertTitle: { ko: '링크 삽입', en: 'Insert Link' },
+    unlinkTitle: { ko: '링크 해제', en: 'Remove Link' },
+    imageInsertText: { ko: '🖼️이미지', en: '🖼️Image' },
+    imageInsertTitle: { ko: '이미지 삽입', en: 'Insert Image' },
+    foreColorTitle: { ko: '글자 색', en: 'Text Color' },
+    backColorTitle: { ko: '배경 색', en: 'Background Color' },
+    symbolSelectTitle: { ko: '기호 삽입', en: 'Insert Symbol' },
+    symbolPlaceholder: { ko: '기호', en: 'Symbol' },
+    fileNameTitle: { ko: '저장 파일명', en: 'File name to save as' },
+    toggleSourceTitle: { ko: '우측 소스 패널 숨기기/보이기', en: 'Show/hide the source panel' },
+    btnHideSource: { ko: '소스 패널 숨기기', en: 'Hide Source Panel' },
+    btnShowSource: { ko: '소스 패널 보이기', en: 'Show Source Panel' },
+    saveText: { ko: '💾 저장', en: '💾 Save' },
+    saveTitle: { ko: 'HTML 파일로 저장', en: 'Save as HTML file' },
+    dropzoneTitle: { ko: 'HTML 파일을 여기로 드래그하세요', en: 'Drag an HTML file here' },
+    dropzoneSubtitle: { ko: '또는 아래 버튼으로 파일을 선택하세요', en: 'Or choose a file with the button below' },
+    dropzoneButton: { ko: '파일 선택', en: 'Choose File' },
+    dropzoneHint: {
+      ko: '복잡한 새 문서를 처음부터 작성하기보다,<br>이미 만들어진 HTML 파일을 불러와 수정하는 용도로 사용하는 것을 권장합니다.',
+      en: 'Rather than authoring a complex new document from scratch,<br>this tool is best used to open and edit an existing HTML file.'
+    },
+    editorFrameTitle: { ko: '편집 영역', en: 'Editing Area' },
+    resizerTitle: { ko: '드래그하여 편집창 폭 조절', en: 'Drag to resize the panels' },
+    editModeFail: { ko: '편집 모드 활성화 실패: {0}', en: 'Failed to enable edit mode: {0}' },
+    statusLoaded: { ko: '"{0}" 불러옴', en: '"{0}" loaded' },
+    statusNewDoc: { ko: '새 문서 생성', en: 'New document created' },
+    confirmDiscardNew: { ko: '현재 편집 중인 내용을 버리고 새 문서를 만들까요?', en: 'Discard your current changes and create a new document?' },
+    confirmNotHtml: { ko: '"{0}"은(는) HTML 파일이 아닌 것 같습니다. 그래도 불러올까요?', en: '"{0}" doesn’t look like an HTML file. Load it anyway?' },
+    confirmDiscardLoad: { ko: '현재 편집 중인 내용을 버리고 새 파일을 불러올까요?', en: 'Discard your current changes and load a new file?' },
+    statusNeedTableCursor: { ko: '표 안에 커서를 놓으세요', en: 'Place the cursor inside a table' },
+    statusNoRightCell: { ko: '오른쪽에 합칠 셀이 없습니다', en: 'No cell to the right to merge with' },
+    statusNoRowBelow: { ko: '아래에 합칠 행이 없습니다', en: 'No row below to merge with' },
+    statusNoCellBelow: { ko: '아래에 합칠 셀이 없습니다', en: 'No cell below to merge with' },
+    statusNotMerged: { ko: '병합된 셀이 아닙니다', en: 'This cell is not a merged cell' },
+    promptRows: { ko: '표의 행 수를 입력하세요:', en: 'Enter the number of rows:' },
+    promptCols: { ko: '표의 열 수를 입력하세요:', en: 'Enter the number of columns:' },
+    promptLinkUrl: {
+      ko: '링크 URL을 입력하세요:\n(다음 단계에서 새 탭 열기 여부를 확인합니다)',
+      en: 'Enter the link URL:\n(You will be asked whether to open it in a new tab next)'
+    },
+    confirmNewTab: { ko: '새 탭에서 열리도록 설정할까요? (확인: 새 탭 / 취소: 현재 탭)', en: 'Open this link in a new tab? (OK: new tab / Cancel: same tab)' },
+    confirmImageSource: { ko: '로컬 이미지 파일을 삽입하려면 확인, URL로 삽입하려면 취소를 누르세요.', en: 'Click OK to insert a local image file, or Cancel to insert from a URL.' },
+    promptImageUrl: { ko: '이미지 URL을 입력하세요:', en: 'Enter the image URL:' },
+    statusSaved: { ko: '"{0}" 저장됨', en: '"{0}" saved' },
+  };
+
+  function t(key, ...args) {
+    const entry = I18N[key];
+    let str = entry ? (entry[currentLang] || entry.ko) : key;
+    args.forEach((a, i) => { str = str.split('{' + i + '}').join(a); });
+    return str;
+  }
+
+  function applyI18n() {
+    document.documentElement.lang = currentLang;
+    document.title = t('pageTitle');
+    document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
+    btnToggleSource.textContent = mainEl.classList.contains('source-hidden') ? t('btnShowSource') : t('btnHideSource');
+    langKoBtn.classList.toggle('active', currentLang === 'ko');
+    langEnBtn.classList.toggle('active', currentLang === 'en');
+  }
+
+  function setLang(lang) {
+    currentLang = lang;
+    localStorage.setItem(LANG_KEY, lang);
+    applyI18n();
+  }
+
+  langKoBtn.addEventListener('click', () => setLang('ko'));
+  langEnBtn.addEventListener('click', () => setLang('en'));
+  applyI18n();
+
+  let docLoaded = false;
+  // Which side the user last typed in - determines the authoritative content for Save
+  // and stops the other side from being overwritten mid-keystroke.
+  let lastEditedSide = 'iframe';
+  let mutationObserver = null;
+  let sourceDebounceTimer = null;
+  let mutationDebounceTimer = null;
+  const FRAME_TO_SOURCE_DEBOUNCE = 250;
+  const SOURCE_TO_FRAME_DEBOUNCE = 450;
+
+  const blankTemplate =
+`<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>새 문서</title>
+</head>
+<body>
+<h1>제목을 입력하세요</h1>
+<p>내용을 입력하세요.</p>
+</body>
+</html>
+`;
+
+  document.getElementById('appYear').textContent = new Date().getFullYear();
+
+  function setStatus(msg) {
+    statusEl.textContent = msg;
+    if (msg) setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, 3000);
+  }
+
+  function setControlsEnabled(enabled) {
+    formatButtons.forEach(el => el.disabled = !enabled);
+    document.getElementById('btnToggleSource').disabled = !enabled;
+    document.getElementById('btnSave').disabled = !enabled;
+  }
+  setControlsEnabled(false);
+
+  function finalizeFrameReady() {
+    try {
+      frame.contentDocument.designMode = 'on';
+    } catch (e) {
+      setStatus(t('editModeFail', e.message));
+    }
+    docLoaded = true;
+    setControlsEnabled(true);
+    attachMutationObserver();
+    syncKeepAllButton();
+  }
+
+  // Reflect the loaded document's actual word-break state on the toggle button
+  // (persisted as an inline style on <body>, so it survives save/reload as-is).
+  function syncKeepAllButton() {
+    const body = frame.contentDocument.body;
+    const enabled = !!body && body.style.wordBreak === 'keep-all';
+    btnKeepAll.classList.toggle('toggled', enabled);
+  }
+
+  function attachMutationObserver() {
+    if (mutationObserver) mutationObserver.disconnect();
+    mutationObserver = new MutationObserver(() => {
+      lastEditedSide = 'iframe';
+      clearTimeout(mutationDebounceTimer);
+      mutationDebounceTimer = setTimeout(syncFrameToSource, FRAME_TO_SOURCE_DEBOUNCE);
+    });
+    mutationObserver.observe(frame.contentDocument, {
+      childList: true, subtree: true, attributes: true, characterData: true
+    });
+  }
+
+  // WYSIWYG -> source panel. Skipped while the user is actively typing in the
+  // source panel so their in-progress edit is never clobbered mid-keystroke.
+  function syncFrameToSource() {
+    if (document.activeElement === sourceArea) return;
+    const scrollTop = sourceArea.scrollTop;
+    sourceArea.value = serializeCurrentDoc();
+    sourceArea.scrollTop = scrollTop;
+  }
+
+  // Source panel -> WYSIWYG. A full srcdoc reload is the only reliable way to
+  // reflect arbitrary (possibly mid-edit / invalid) HTML text back into the
+  // iframe, so this is debounced rather than run per keystroke.
+  function applySourceToFrame() {
+    if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
+    let scrollY = 0;
+    try { scrollY = frame.contentWindow.scrollY || 0; } catch (e) {}
+    frame.onload = function () {
+      finalizeFrameReady();
+      try { frame.contentWindow.scrollTo(0, scrollY); } catch (e) {}
+    };
+    frame.srcdoc = sourceArea.value;
+  }
+
+  function loadHTML(htmlString, fileName) {
+    clearTimeout(sourceDebounceTimer);
+    clearTimeout(mutationDebounceTimer);
+    if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
+    dropzone.style.display = 'none';
+    mainEl.classList.add('loaded');
+    lastEditedSide = 'iframe';
+
+    frame.onload = function () {
+      finalizeFrameReady();
+      syncFrameToSource();
+    };
+    frame.srcdoc = htmlString;
+
+    if (fileName) fileNameInput.value = fileName;
+    setStatus(fileName ? t('statusLoaded', fileName) : t('statusNewDoc'));
+  }
+
+  sourceArea.addEventListener('input', () => {
+    if (!docLoaded) return;
+    lastEditedSide = 'source';
+    clearTimeout(sourceDebounceTimer);
+    sourceDebounceTimer = setTimeout(applySourceToFrame, SOURCE_TO_FRAME_DEBOUNCE);
+  });
+
+  function serializeCurrentDoc() {
+    const doc = frame.contentDocument;
+    let out = '';
+    if (doc.doctype) {
+      out += '<!DOCTYPE ' + doc.doctype.name;
+      if (doc.doctype.publicId) out += ' PUBLIC "' + doc.doctype.publicId + '"';
+      if (doc.doctype.systemId) out += (doc.doctype.publicId ? ' ' : ' SYSTEM ') + '"' + doc.doctype.systemId + '"';
+      out += '>\n';
+    } else {
+      out += '<!DOCTYPE html>\n';
+    }
+    out += doc.documentElement.outerHTML;
+    return out;
+  }
+
+  // --- File open (button + input) ---
+  document.getElementById('btnOpen').addEventListener('click', () => fileInput.click());
+  document.getElementById('btnDropOpen').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => loadHTML(e.target.result, file.name);
+    reader.readAsText(file);
+    fileInput.value = '';
+  });
+
+  // --- New document ---
+  document.getElementById('btnNew').addEventListener('click', () => {
+    if (docLoaded && !confirm(t('confirmDiscardNew'))) return;
+    loadHTML(blankTemplate, 'untitled.html');
+  });
+
+  // --- Drag and drop (whole window) ---
+  ['dragenter', 'dragover'].forEach(evt => {
+    window.addEventListener(evt, e => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    window.addEventListener(evt, e => {
+      if (evt === 'dragleave' && e.relatedTarget) return;
+      dropzone.classList.remove('dragover');
+    });
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    if (!/\.(html?|htm)$/i.test(file.name)) {
+      if (!confirm(t('confirmNotHtml', file.name))) return;
+    }
+    if (docLoaded && dropzone.style.display === 'none' && !confirm(t('confirmDiscardLoad'))) return;
+    const reader = new FileReader();
+    reader.onload = ev => loadHTML(ev.target.result, file.name);
+    reader.readAsText(file);
+  });
+
+  // --- Formatting commands ---
+  function execOnFrame(cmd, value) {
+    if (!docLoaded) return;
+    frame.contentWindow.focus();
+    frame.contentDocument.execCommand(cmd, false, value === undefined ? null : value);
+  }
+
+  document.querySelectorAll('button[data-cmd]').forEach(btn => {
+    btn.addEventListener('click', () => execOnFrame(btn.dataset.cmd));
+  });
+
+  // Wrap/unwrap the selection in <kbd> - there's no execCommand for arbitrary
+  // inline tags, so this is done directly via Range/Selection.
+  document.getElementById('btnKbd').addEventListener('click', () => {
+    if (!docLoaded) return;
+    frame.contentWindow.focus();
+    const doc = frame.contentDocument;
+    const sel = doc.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+
+    let node = sel.anchorNode;
+    if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const existingKbd = node && node.closest ? node.closest('kbd') : null;
+    if (existingKbd) {
+      const parent = existingKbd.parentNode;
+      while (existingKbd.firstChild) parent.insertBefore(existingKbd.firstChild, existingKbd);
+      parent.removeChild(existingKbd);
+      return;
+    }
+
+    if (range.collapsed) return;
+    const kbd = doc.createElement('kbd');
+    try {
+      range.surroundContents(kbd);
+    } catch (e) {
+      const contents = range.extractContents();
+      kbd.appendChild(contents);
+      range.insertNode(kbd);
+    }
+    sel.removeAllRanges();
+    const newRange = doc.createRange();
+    newRange.selectNodeContents(kbd);
+    sel.addRange(newRange);
+  });
+
+  document.getElementById('blockSelect').addEventListener('change', e => {
+    execOnFrame('formatBlock', '<' + e.target.value + '>');
+  });
+
+  // Apply a bullet/number style to the list at the caret, creating a list of
+  // the matching kind first if the caret isn't inside one yet.
+  function applyListStyle(kind, type) {
+    if (!docLoaded) return;
+    frame.contentWindow.focus();
+    const findList = () => {
+      const sel = frame.contentDocument.getSelection();
+      let node = sel && sel.anchorNode;
+      if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      return node && node.closest ? node.closest('ul, ol') : null;
+    };
+    let listEl = findList();
+    if (!listEl) {
+      frame.contentDocument.execCommand(kind === 'ul' ? 'insertUnorderedList' : 'insertOrderedList', false, null);
+      listEl = findList();
+    }
+    if (listEl) listEl.style.listStyleType = type;
+  }
+
+  document.getElementById('ulStyleSelect').addEventListener('change', e => applyListStyle('ul', e.target.value));
+  document.getElementById('olStyleSelect').addEventListener('change', e => applyListStyle('ol', e.target.value));
+
+  document.getElementById('symbolSelect').addEventListener('change', e => {
+    const symbol = e.target.value;
+    if (symbol) execOnFrame('insertText', symbol);
+    e.target.value = ''; // reset to placeholder so the same symbol can be picked again
+  });
+
+  btnKeepAll.addEventListener('click', () => {
+    if (!docLoaded) return;
+    const body = frame.contentDocument.body;
+    const enable = body.style.wordBreak !== 'keep-all';
+    body.style.wordBreak = enable ? 'keep-all' : '';
+    btnKeepAll.classList.toggle('toggled', enable);
+  });
+
+  // --- Table editing ---
+  const DEFAULT_CELL_BORDER = '1px solid #333';
+  const DEFAULT_CELL_PADDING = '8px';
+
+  function currentCell() {
+    if (!docLoaded) return null;
+    const sel = frame.contentDocument.getSelection();
+    if (!sel.rangeCount) return null;
+    let node = sel.anchorNode;
+    if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    return node && node.closest ? node.closest('td, th') : null;
+  }
+
+  function currentTable() {
+    const cell = currentCell();
+    return cell ? cell.closest('table') : null;
+  }
+
+  function newCell(doc, tagName, borderStyle, paddingStyle) {
+    const td = doc.createElement(tagName);
+    td.style.border = borderStyle;
+    td.style.padding = paddingStyle;
+    td.innerHTML = '<br>';
+    return td;
+  }
+
+  function btnTableInsertHandler() {
+    if (!docLoaded) return;
+    const rowsStr = prompt(t('promptRows'), '3');
+    if (rowsStr === null) return;
+    const colsStr = prompt(t('promptCols'), '3');
+    if (colsStr === null) return;
+    const rows = Math.max(1, Math.min(50, parseInt(rowsStr, 10) || 3));
+    const cols = Math.max(1, Math.min(50, parseInt(colsStr, 10) || 3));
+
+    frame.contentWindow.focus();
+    const doc = frame.contentDocument;
+    const table = doc.createElement('table');
+    table.style.borderCollapse = 'collapse';
+    table.style.width = '100%';
+    for (let r = 0; r < rows; r++) {
+      const tr = doc.createElement('tr');
+      for (let c = 0; c < cols; c++) {
+        tr.appendChild(newCell(doc, 'td', DEFAULT_CELL_BORDER, DEFAULT_CELL_PADDING));
+      }
+      table.appendChild(tr);
+    }
+
+    const sel = doc.getSelection();
+    if (sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(table);
+    } else {
+      doc.body.appendChild(table);
+    }
+
+    const firstCell = table.querySelector('td');
+    const newRange = doc.createRange();
+    newRange.selectNodeContents(firstCell);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }
+
+  function insertRowHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const doc = frame.contentDocument;
+    const row = cell.closest('tr');
+    const colCount = Array.from(row.children).reduce((sum, c) => sum + (c.colSpan || 1), 0);
+    const border = cell.style.border || DEFAULT_CELL_BORDER;
+    const padding = cell.style.padding || DEFAULT_CELL_PADDING;
+    const newRow = doc.createElement('tr');
+    for (let i = 0; i < colCount; i++) {
+      newRow.appendChild(newCell(doc, 'td', border, padding));
+    }
+    row.parentNode.insertBefore(newRow, row.nextSibling);
+  }
+
+  function deleteRowHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const row = cell.closest('tr');
+    const table = cell.closest('table');
+    if (table.rows.length <= 1) { table.remove(); return; }
+    row.remove();
+  }
+
+  function insertColumnHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const doc = frame.contentDocument;
+    const table = cell.closest('table');
+    const cellIndex = cell.cellIndex;
+    const border = cell.style.border || DEFAULT_CELL_BORDER;
+    const padding = cell.style.padding || DEFAULT_CELL_PADDING;
+    Array.from(table.rows).forEach(row => {
+      const refCell = row.cells[cellIndex];
+      const tag = refCell ? refCell.tagName.toLowerCase() : 'td';
+      const td = newCell(doc, tag, border, padding);
+      if (refCell) row.insertBefore(td, refCell.nextSibling);
+      else row.appendChild(td);
+    });
+  }
+
+  function deleteColumnHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const table = cell.closest('table');
+    const cellIndex = cell.cellIndex;
+    if (table.rows[0].cells.length <= 1) { table.remove(); return; }
+    Array.from(table.rows).forEach(row => {
+      const target = row.cells[cellIndex];
+      if (target) target.remove();
+    });
+  }
+
+  function mergeRightHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const next = cell.nextElementSibling;
+    if (!next || (next.tagName !== 'TD' && next.tagName !== 'TH')) {
+      setStatus(t('statusNoRightCell'));
+      return;
+    }
+    cell.colSpan = (cell.colSpan || 1) + (next.colSpan || 1);
+    const nextContent = next.innerHTML.trim();
+    if (nextContent && nextContent !== '<br>') {
+      cell.innerHTML += (cell.innerHTML.trim() ? ' ' : '') + next.innerHTML;
+    }
+    next.remove();
+  }
+
+  function mergeDownHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const row = cell.closest('tr');
+    const table = cell.closest('table');
+    const nextRow = table.rows[row.rowIndex + 1];
+    if (!nextRow) { setStatus(t('statusNoRowBelow')); return; }
+    const below = nextRow.cells[cell.cellIndex];
+    if (!below) { setStatus(t('statusNoCellBelow')); return; }
+    cell.rowSpan = (cell.rowSpan || 1) + (below.rowSpan || 1);
+    const belowContent = below.innerHTML.trim();
+    if (belowContent && belowContent !== '<br>') {
+      cell.innerHTML += (cell.innerHTML.trim() ? ' ' : '') + below.innerHTML;
+    }
+    below.remove();
+  }
+
+  function splitCellHandler() {
+    const cell = currentCell();
+    if (!cell) { setStatus(t('statusNeedTableCursor')); return; }
+    const doc = frame.contentDocument;
+    const border = cell.style.border || DEFAULT_CELL_BORDER;
+    const padding = cell.style.padding || DEFAULT_CELL_PADDING;
+    if (cell.colSpan > 1) {
+      cell.colSpan -= 1;
+      cell.parentNode.insertBefore(newCell(doc, cell.tagName.toLowerCase(), border, padding), cell.nextSibling);
+    } else if (cell.rowSpan > 1) {
+      cell.rowSpan -= 1;
+      const row = cell.closest('tr');
+      const table = cell.closest('table');
+      const nextRow = table.rows[row.rowIndex + 1];
+      if (nextRow) {
+        const refCell = nextRow.cells[cell.cellIndex] || null;
+        nextRow.insertBefore(newCell(doc, cell.tagName.toLowerCase(), border, padding), refCell);
+      }
+    } else {
+      setStatus(t('statusNotMerged'));
+    }
+  }
+
+  function applyTableBorder(px) {
+    const table = currentTable();
+    if (!table) { setStatus(t('statusNeedTableCursor')); return; }
+    const width = parseInt(px, 10) || 0;
+    table.style.borderCollapse = 'collapse';
+    const borderStyle = width > 0 ? width + 'px solid #333' : 'none';
+    table.style.border = borderStyle;
+    table.querySelectorAll('td, th').forEach(c => { c.style.border = borderStyle; });
+  }
+
+  function applyCellPadding(px) {
+    const table = currentTable();
+    if (!table) { setStatus(t('statusNeedTableCursor')); return; }
+    table.querySelectorAll('td, th').forEach(c => { c.style.padding = px + 'px'; });
+  }
+
+  document.getElementById('btnTableInsert').addEventListener('click', btnTableInsertHandler);
+  document.getElementById('btnRowInsert').addEventListener('click', insertRowHandler);
+  document.getElementById('btnRowDelete').addEventListener('click', deleteRowHandler);
+  document.getElementById('btnColInsert').addEventListener('click', insertColumnHandler);
+  document.getElementById('btnColDelete').addEventListener('click', deleteColumnHandler);
+  document.getElementById('btnCellMergeRight').addEventListener('click', mergeRightHandler);
+  document.getElementById('btnCellMergeDown').addEventListener('click', mergeDownHandler);
+  document.getElementById('btnCellSplit').addEventListener('click', splitCellHandler);
+  document.getElementById('tableBorderSelect').addEventListener('change', e => applyTableBorder(e.target.value));
+  document.getElementById('tableSpacingSelect').addEventListener('change', e => applyCellPadding(e.target.value));
+
+  document.getElementById('foreColor').addEventListener('input', e => {
+    execOnFrame('foreColor', e.target.value);
+  });
+  document.getElementById('backColor').addEventListener('input', e => {
+    execOnFrame('hiliteColor', e.target.value);
+  });
+
+  document.getElementById('btnLink').addEventListener('click', () => {
+    const url = prompt(t('promptLinkUrl'), 'https://');
+    if (!url) return;
+    const openInNewTab = confirm(t('confirmNewTab'));
+    execOnFrame('createLink', url);
+    if (openInNewTab) {
+      const sel = frame.contentDocument.getSelection();
+      let node = sel && sel.anchorNode;
+      if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      const anchor = node && node.closest ? node.closest('a[href]') : null;
+      if (anchor) {
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+      }
+    }
+  });
+
+  document.getElementById('btnImage').addEventListener('click', () => {
+    const choice = confirm(t('confirmImageSource'));
+    if (choice) {
+      const imgInput = document.createElement('input');
+      imgInput.type = 'file';
+      imgInput.accept = 'image/*';
+      imgInput.onchange = () => {
+        const f = imgInput.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = e => execOnFrame('insertImage', e.target.result);
+        reader.readAsDataURL(f);
+      };
+      imgInput.click();
+    } else {
+      const url = prompt(t('promptImageUrl'), 'https://');
+      if (url) execOnFrame('insertImage', url);
+    }
+  });
+
+  // --- Source panel show/hide (panel itself is always live, this only frees width) ---
+  btnToggleSource.addEventListener('click', () => {
+    if (!docLoaded) return;
+    const hidden = mainEl.classList.toggle('source-hidden');
+    btnToggleSource.textContent = hidden ? t('btnShowSource') : t('btnHideSource');
+    if (hidden) {
+      // let the .source-hidden CSS rule (100% width) take over
+      frame.style.flex = '';
+      frame.style.maxWidth = '';
+      sourceArea.style.flex = '';
+      sourceArea.style.maxWidth = '';
+    } else {
+      applyPaneRatio();
+    }
+  });
+
+  // --- Draggable divider between the WYSIWYG and source panes ---
+  let paneRatio = null; // editor pane's share of #main width, 0-1; null = default CSS 2:1 split
+  let resizing = false;
+
+  function applyPaneRatio() {
+    if (paneRatio === null) return;
+    const leftPct = paneRatio * 100;
+    const rightPct = 100 - leftPct;
+    frame.style.flex = `0 0 ${leftPct}%`;
+    frame.style.maxWidth = `${leftPct}%`;
+    sourceArea.style.flex = `0 0 ${rightPct}%`;
+    sourceArea.style.maxWidth = `${rightPct}%`;
+  }
+
+  resizer.addEventListener('mousedown', e => {
+    if (mainEl.classList.contains('source-hidden')) return;
+    resizing = true;
+    resizer.classList.add('dragging');
+    resizeOverlay.classList.add('active');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!resizing) return;
+    const rect = mainEl.getBoundingClientRect();
+    let ratio = (e.clientX - rect.left) / rect.width;
+    ratio = Math.min(0.85, Math.max(0.15, ratio));
+    paneRatio = ratio;
+    applyPaneRatio();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!resizing) return;
+    resizing = false;
+    resizer.classList.remove('dragging');
+    resizeOverlay.classList.remove('active');
+    document.body.style.userSelect = '';
+  });
+
+  // --- Save ---
+  document.getElementById('btnSave').addEventListener('click', () => {
+    if (!docLoaded) return;
+    const html = lastEditedSide === 'source' ? sourceArea.value : serializeCurrentDoc();
+    let name = (fileNameInput.value || 'untitled.html').trim();
+    if (!/\.(html?|htm)$/i.test(name)) name += '.html';
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus(t('statusSaved', name));
+  });
+})();
+</script>
+
+</body>
+</html>
